@@ -35,10 +35,10 @@ PINECONE_NAMESPACE: str = os.getenv("PINECONE_NAMESPACE", "chatbot")
 PINECONE_CLOUD: str = os.getenv("PINECONE_CLOUD", "aws")
 PINECONE_REGION: str = os.getenv("PINECONE_REGION", "us-east-1")
 
-# Google
-GOOGLE_SERVICE_ACCOUNT_FILE: str = os.getenv(
-    "GOOGLE_SERVICE_ACCOUNT_FILE", "credentials/google-service-account.json"
-)
+# Google OAuth2
+GOOGLE_CLIENT_ID: str = _require("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET: str = _require("GOOGLE_CLIENT_SECRET")
+GOOGLE_TOKEN_FILE: str = os.getenv("GOOGLE_TOKEN_FILE", "credentials/google-token.json")
 
 # Agent
 AGENT_SYSTEM_PROMPT: str = os.getenv(
