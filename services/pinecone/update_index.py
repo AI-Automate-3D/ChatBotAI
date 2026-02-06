@@ -14,6 +14,9 @@ Standalone script — run directly to update vectors in an existing index:
     # Delete all vectors in a namespace
     python -m services.pinecone.update_index --delete-all --yes
 
+    # Replace the entire index — wipe all vectors then upsert from file
+    python -m services.pinecone.update_index --replace data.json --yes
+
     # Show index stats
     python -m services.pinecone.update_index --stats
 
@@ -136,6 +139,34 @@ def delete_all(namespace: str | None = None, skip_confirm: bool = False) -> None
     logger.info("Deleted all vectors in namespace '%s'.", ns)
 
 
+def replace_index(filepath: str, namespace: str | None = None, skip_confirm: bool = False) -> None:
+    """Replace the entire index contents — delete all vectors then upsert from file.
+
+    This is a full replacement: every existing vector in the namespace is
+    removed first, then the new documents are embedded and uploaded.
+    """
+    ns = namespace or config.PINECONE_NAMESPACE
+
+    if not skip_confirm:
+        answer = input(
+            f"\nThis will DELETE all vectors in namespace '{ns}' of index "
+            f"'{config.PINECONE_INDEX_NAME}' and replace them with data from "
+            f"'{filepath}'. This is irreversible. [y/N] "
+        )
+        if answer.strip().lower() not in ("y", "yes"):
+            logger.info("Aborted.")
+            return
+
+    # Step 1 — wipe existing vectors
+    _, index = _get_index()
+    logger.info("Deleting all existing vectors in namespace '%s' …", ns)
+    index.delete(delete_all=True, namespace=ns)
+    logger.info("Namespace cleared.")
+
+    # Step 2 — upsert new data
+    upsert_from_file(filepath, namespace=ns)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Update vectors in a Pinecone index."
@@ -172,6 +203,11 @@ def main() -> None:
         action="store_true",
         help="Delete all vectors in the namespace",
     )
+    group.add_argument(
+        "--replace",
+        type=str,
+        help="Replace entire index: delete all vectors then upsert from JSON file",
+    )
 
     parser.add_argument(
         "--metadata",
@@ -202,6 +238,8 @@ def main() -> None:
         delete_vectors(args.delete_ids, namespace=args.namespace)
     elif args.delete_all:
         delete_all(namespace=args.namespace, skip_confirm=args.yes)
+    elif args.replace:
+        replace_index(args.replace, namespace=args.namespace, skip_confirm=args.yes)
 
 
 if __name__ == "__main__":
