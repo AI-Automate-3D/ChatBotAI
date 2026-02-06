@@ -1,7 +1,18 @@
 # Environment & secrets
 .env
 config.env
+config.json
 credentials/
+
+# Runtime data (generated at runtime, not committed)
+agent/memory.json
+agent/input.txt
+agent/output.txt
+telegram/input/telegram_input.json
+telegram/output/telegram_output.json
+telegram/log/
+telegram/last_chat_id.txt
+telegram/output/message.txt
 
 # Python
 __pycache__/

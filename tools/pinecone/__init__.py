@@ -38,6 +38,7 @@ from tools.pinecone.index_manager import (
     describe_index,
     list_indexes,
 )
+from tools.pinecone.parser import parse_docx, parse_kb_text
 from tools.pinecone.vector_store import VectorStore
 
 __all__ = [
@@ -49,4 +50,6 @@ __all__ = [
     "delete_index",
     "describe_index",
     "list_indexes",
+    "parse_docx",
+    "parse_kb_text",
 ]

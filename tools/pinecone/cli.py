@@ -11,20 +11,26 @@ Usage
     # Vector operations
     python -m tools.pinecone.cli vectors stats
     python -m tools.pinecone.cli vectors upsert --file data.json
+    python -m tools.pinecone.cli vectors upsert --file knowledgebase.docx
+    python -m tools.pinecone.cli vectors upsert --file knowledgebase.docx --replace
     python -m tools.pinecone.cli vectors delete --ids vec-1 vec-2
     python -m tools.pinecone.cli vectors delete-all --yes
     python -m tools.pinecone.cli vectors update-metadata --id vec-1 --metadata '{"text": "new"}'
 
-JSON file format for upsert
-----------------------------
-Pre-computed vectors::
+Supported file formats for upsert
+-----------------------------------
+.docx — Knowledge-base documents using ``--- KB_CHUNK_END ---`` separators.
+        Each chunk must have KB_ID, TYPE, TITLE, and TEXT fields.
+        Requires an embedding provider (default: OpenAI).
+
+.json — Pre-computed vectors::
 
     [
         {"id": "doc-1", "values": [0.1, 0.2, ...], "metadata": {"text": "hello"}},
         ...
     ]
 
-Text (requires --embed-provider, to be added later)::
+.json — Text (auto-embedded)::
 
     [
         {"id": "doc-1", "text": "hello world"},
@@ -38,6 +44,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 from tools.pinecone.config import PineconeConfig
 from tools.pinecone.index_manager import (
@@ -48,16 +55,60 @@ from tools.pinecone.index_manager import (
 )
 from tools.pinecone.vector_store import VectorStore
 
+logger = logging.getLogger(__name__)
+
+
+# ── embedding helpers ───────────────────────────────────────────────────────
+
+def _make_embed_fn(provider: str, model: str, api_key: str | None = None):
+    """Build an embedding function from CLI arguments.
+
+    Args:
+        provider: Embedding provider name (currently only ``"openai"``).
+        model:    Model identifier for the provider.
+        api_key:  Optional API key. Falls back to the environment variable.
+
+    Returns:
+        A callable ``(str) -> list[float]`` suitable for
+        :py:meth:`VectorStore.upsert_texts`.
+    """
+    if provider == "openai":
+        try:
+            import openai
+        except ImportError:
+            sys.exit(
+                "ERROR: The 'openai' package is required for text-based upsert. "
+                "Install it with: pip install openai"
+            )
+
+        client = openai.OpenAI(api_key=api_key) if api_key else openai.OpenAI()
+
+        def embed(text: str) -> list[float]:
+            response = client.embeddings.create(input=text, model=model)
+            return response.data[0].embedding
+
+        return embed
+
+    sys.exit(f"ERROR: Unsupported embedding provider: {provider}")
+
+
+# ── argument parser ─────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="pinecone-tools",
         description="Reusable Pinecone toolkit — index management & vector operations.",
     )
-    root.add_argument(
+    config_group = root.add_mutually_exclusive_group()
+    config_group.add_argument(
+        "--config",
+        default=None,
+        help="Path to a JSON config file (default: config.json if it exists)",
+    )
+    config_group.add_argument(
         "--env-file",
         default=None,
-        help="Path to a .env file (default: reads from environment)",
+        help="Path to a .env file (fallback if no JSON config)",
     )
     root.add_argument(
         "--namespace",
@@ -89,9 +140,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
     vec_sub.add_parser("stats", help="Show index statistics")
 
-    p_upsert = vec_sub.add_parser("upsert", help="Upsert vectors from a JSON file")
+    p_upsert = vec_sub.add_parser("upsert", help="Upsert vectors from a .json or .docx file")
     p_upsert.add_argument("--file", required=True,
-                          help="JSON file with vector data")
+                          help="JSON or .docx file with vector/text data")
+    p_upsert.add_argument("--embed-provider", default="openai",
+                          choices=["openai"],
+                          help="Embedding provider for text-based upsert (default: openai)")
+    p_upsert.add_argument("--embed-model", default="text-embedding-3-small",
+                          help="Embedding model name (default: text-embedding-3-small)")
+    p_upsert.add_argument("--replace", action="store_true", default=False,
+                          help="Delete all existing vectors in the namespace before upserting")
 
     p_del = vec_sub.add_parser("delete", help="Delete vectors by ID")
     p_del.add_argument("--ids", nargs="+", required=True,
@@ -108,6 +166,83 @@ def _build_parser() -> argparse.ArgumentParser:
     return root
 
 
+# ── upsert handlers ────────────────────────────────────────────────────────
+
+def _handle_upsert(store: VectorStore, args, json_config: dict | None = None) -> None:
+    """Route upsert to the right handler based on file extension."""
+    file_path = Path(args.file)
+    ext = file_path.suffix.lower()
+
+    # Optionally wipe the namespace first
+    if args.replace:
+        store.delete_all(skip_confirm=False)
+
+    # Resolve OpenAI settings from JSON config (if available)
+    openai_cfg = (json_config or {}).get("openai", {})
+    openai_api_key = openai_cfg.get("api_key")
+    embed_model = openai_cfg.get("embedding_model") or args.embed_model
+
+    if ext == ".docx":
+        _upsert_docx(store, args, embed_model, openai_api_key)
+    elif ext == ".json":
+        _upsert_json(store, args, embed_model, openai_api_key)
+    else:
+        sys.exit(f"ERROR: Unsupported file format '{ext}'. Use .json or .docx.")
+
+
+def _upsert_docx(
+    store: VectorStore,
+    args,
+    embed_model: str,
+    openai_api_key: str | None = None,
+) -> None:
+    """Parse a .docx knowledge-base file and upsert its chunks."""
+    from tools.pinecone.parser import parse_docx
+
+    chunks = parse_docx(args.file)
+    if not chunks:
+        sys.exit("ERROR: No valid KB chunks found in .docx file.")
+
+    logger.info("Parsed %d chunk(s) from .docx — embedding and upserting …", len(chunks))
+    embed_fn = _make_embed_fn(args.embed_provider, embed_model, api_key=openai_api_key)
+    store.upsert_texts(chunks, embed_fn=embed_fn)
+    logger.info("Done. Upserted %d chunk(s).", len(chunks))
+
+
+def _upsert_json(
+    store: VectorStore,
+    args,
+    embed_model: str,
+    openai_api_key: str | None = None,
+) -> None:
+    """Upsert from a JSON file (pre-computed vectors or text)."""
+    with open(args.file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, list):
+        sys.exit("ERROR: JSON file must contain a top-level array.")
+
+    if not data:
+        sys.exit("ERROR: JSON file is empty.")
+
+    # Pre-computed vectors (items have "values" key)
+    if "values" in data[0]:
+        store.upsert_vectors(data)
+    # Text-based (items have "text" key — embed automatically)
+    elif "text" in data[0]:
+        logger.info("Detected text-based JSON — embedding and upserting %d item(s) …", len(data))
+        embed_fn = _make_embed_fn(args.embed_provider, embed_model, api_key=openai_api_key)
+        store.upsert_texts(data, embed_fn=embed_fn)
+        logger.info("Done. Upserted %d item(s).", len(data))
+    else:
+        sys.exit(
+            "ERROR: JSON items must have either 'values' (pre-computed vectors) "
+            "or 'text' (to be embedded)."
+        )
+
+
+# ── main ────────────────────────────────────────────────────────────────────
+
 def main() -> None:
     logging.basicConfig(
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -117,7 +252,26 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    cfg = PineconeConfig.from_env(env_file=args.env_file)
+    # ── load config ───────────────────────────────────────────────────────
+    _json_config = {}  # raw JSON data for non-Pinecone keys (e.g. openai)
+
+    if args.config:
+        # Explicit --config path
+        cfg = PineconeConfig.from_json(args.config)
+        with open(args.config, "r", encoding="utf-8") as f:
+            _json_config = json.load(f)
+    elif args.env_file:
+        # Explicit --env-file path
+        cfg = PineconeConfig.from_env(env_file=args.env_file)
+    elif Path("_config files/config.json").exists():
+        # Auto-detect config.json in _config files/
+        cfg = PineconeConfig.from_json("_config files/config.json")
+        with open("_config files/config.json", "r", encoding="utf-8") as f:
+            _json_config = json.load(f)
+    else:
+        # Fallback to environment variables
+        cfg = PineconeConfig.from_env()
+
     if args.namespace:
         cfg.namespace = args.namespace
 
@@ -151,19 +305,7 @@ def main() -> None:
                 print(f"  namespace '{ns}': {ns_stats.get('vector_count', 0)} vectors")
 
         elif args.action == "upsert":
-            with open(args.file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, list):
-                sys.exit("ERROR: JSON file must contain a top-level array.")
-
-            # Detect format: pre-computed vectors vs text
-            if data and "values" in data[0]:
-                store.upsert_vectors(data)
-            else:
-                sys.exit(
-                    "ERROR: JSON items must have 'values' (pre-computed vectors). "
-                    "Text-based upsert requires an embedding provider — coming soon."
-                )
+            _handle_upsert(store, args, _json_config)
 
         elif args.action == "delete":
             store.delete_vectors(args.ids)

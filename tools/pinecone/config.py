@@ -1,11 +1,14 @@
 """Pinecone configuration.
 
-Self-contained config — reads from environment variables or accepts
-explicit values.  No dependency on the rest of the project.
+Self-contained config — reads from a JSON file, environment variables,
+or accepts explicit values.  No dependency on the rest of the project.
 
 Usage
 -----
     from tools.pinecone.config import PineconeConfig
+
+    # From a JSON config file (recommended)
+    cfg = PineconeConfig.from_json("config.json")
 
     # From environment variables (.env loaded automatically)
     cfg = PineconeConfig.from_env()
@@ -19,9 +22,10 @@ Usage
 
 from __future__ import annotations
 
+import json
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -34,7 +38,52 @@ class PineconeConfig:
     cloud: str = "aws"
     region: str = "us-east-1"
 
-    # --- factory -----------------------------------------------------------
+    # --- factories ---------------------------------------------------------
+
+    @classmethod
+    def from_json(cls, json_file: str) -> PineconeConfig:
+        """Build config from a JSON file.
+
+        Expected structure::
+
+            {
+              "pinecone": {
+                "api_key": "...",
+                "index_name": "...",
+                "namespace": "chatbot",
+                "cloud": "aws",
+                "region": "us-east-1"
+              }
+            }
+
+        The ``pinecone`` key is required.  ``api_key`` and ``index_name``
+        are required; the rest have sensible defaults.
+        """
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            sys.exit(f"ERROR: Config file not found: {json_file}")
+        except json.JSONDecodeError as exc:
+            sys.exit(f"ERROR: Invalid JSON in {json_file}: {exc}")
+
+        pc = data.get("pinecone", {})
+
+        api_key = pc.get("api_key", "")
+        index_name = pc.get("index_name", "")
+
+        if not api_key:
+            sys.exit(f"ERROR: Missing 'pinecone.api_key' in {json_file}")
+        if not index_name:
+            sys.exit(f"ERROR: Missing 'pinecone.index_name' in {json_file}")
+
+        return cls(
+            api_key=api_key,
+            index_name=index_name,
+            namespace=pc.get("namespace", "default"),
+            cloud=pc.get("cloud", "aws"),
+            region=pc.get("region", "us-east-1"),
+        )
 
     @classmethod
     def from_env(cls, env_file: str | None = None) -> PineconeConfig:

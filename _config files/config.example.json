@@ -1,0 +1,26 @@
+{
+  "_setup": "Rename this file to config.json and fill in your API keys below.",
+  "_step1": "cp config.example.json config.json",
+  "_step2": "Open config.json and replace the empty strings with your keys.",
+
+  "openai": {
+    "api_key": "",
+    "embedding_model": "text-embedding-3-small"
+  },
+  "pinecone": {
+    "api_key": "",
+    "index_name": "",
+    "namespace": "chatbot",
+    "cloud": "aws",
+    "region": "us-east-1"
+  },
+  "agent": {
+    "chat_model": "gpt-4.1",
+    "system_prompt_file": "agent/system_prompt.txt",
+    "top_k": 5,
+    "max_history": 10
+  },
+  "telegram": {
+    "bot_token": ""
+  }
+}
