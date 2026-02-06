@@ -32,6 +32,13 @@ OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embeddin
 PINECONE_API_KEY: str = _require("PINECONE_API_KEY")
 PINECONE_INDEX_NAME: str = _require("PINECONE_INDEX_NAME")
 PINECONE_NAMESPACE: str = os.getenv("PINECONE_NAMESPACE", "chatbot")
+PINECONE_CLOUD: str = os.getenv("PINECONE_CLOUD", "aws")
+PINECONE_REGION: str = os.getenv("PINECONE_REGION", "us-east-1")
+
+# Google
+GOOGLE_SERVICE_ACCOUNT_FILE: str = os.getenv(
+    "GOOGLE_SERVICE_ACCOUNT_FILE", "credentials/google-service-account.json"
+)
 
 # Agent
 AGENT_SYSTEM_PROMPT: str = os.getenv(

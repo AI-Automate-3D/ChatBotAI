@@ -2,18 +2,17 @@
 
 Mirrors the "AI Agent - ChatBot" node in the workflow diagram.
 Combines:
-  - OpenAI Chat Model  (Chat Model)
-  - Simple Memory      (Memory)
-  - Pinecone + OpenAI  (Tool — vector-store retrieval)
+  - services/openai/chat.py         → Chat Model
+  - memory.py                       → Simple Memory
+  - services/pinecone/vector_store   → Tool (RAG retrieval)
 """
 
 import logging
 
-from openai import OpenAI
-
 import config
 from memory import SimpleMemory
-from vector_store import VectorStore
+from services.openai.chat import OpenAIChatModel
+from services.pinecone.vector_store import PineconeVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +21,9 @@ class ChatBotAgent:
     """Orchestrates the LLM, memory, and RAG tool for each user turn."""
 
     def __init__(self) -> None:
-        self._openai = OpenAI(api_key=config.OPENAI_API_KEY)
-        self._model = config.OPENAI_CHAT_MODEL
+        self._chat_model = OpenAIChatModel()
         self._memory = SimpleMemory()
-        self._vector_store = VectorStore()
+        self._vector_store = PineconeVectorStore()
         self._system_prompt = config.AGENT_SYSTEM_PROMPT
 
     def handle_message(self, chat_id: int, user_text: str) -> str:
@@ -59,12 +57,8 @@ class ChatBotAgent:
         messages.append({"role": "user", "content": user_text})
 
         # 3 — Call OpenAI Chat Model
-        logger.info("Calling %s for chat_id=%s", self._model, chat_id)
-        response = self._openai.chat.completions.create(
-            model=self._model,
-            messages=messages,
-        )
-        reply = response.choices[0].message.content or ""
+        logger.info("Processing message for chat_id=%s", chat_id)
+        reply = self._chat_model.complete(messages)
 
         # 4 — Persist to memory
         self._memory.add_user_message(chat_id, user_text)

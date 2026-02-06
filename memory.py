@@ -1,6 +1,6 @@
 """Simple conversation memory — per-chat message buffer.
 
-Mirrors the "Simple Memory" node in the workflow diagram.
+Mirrors the "Simple Memory1" node in the workflow diagram.
 Stores the last N exchanges (user + assistant) per Telegram chat ID.
 """
 
