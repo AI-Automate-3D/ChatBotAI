@@ -6,6 +6,7 @@ A modular toolkit of standalone API functions, processing pipelines, and AI agen
 
 ```
 ChatBotAI/
+├── ChatBotGeneric/ Self-contained Telegram RAG chatbot (start here)
 ├── tg/             Telegram Bot — API functions & message pipeline
 ├── gmail/          Gmail — API functions & email pipeline
 ├── agent/          RAG chatbot — OpenAI + Pinecone retrieval
@@ -33,6 +34,21 @@ triggers/  →  handlers/  →  actions/
 Each stage runs independently. Replace `generate_reply()` in any handler to plug in your own logic (AI agent, lookup table, auto-responder, etc.).
 
 ## Packages
+
+### ChatBotGeneric/ — Ready-to-Deploy Telegram Chatbot
+
+A self-contained AI chatbot that answers questions from your own documents via Telegram. Powered by RAG (Retrieval-Augmented Generation) with Pinecone vector search and OpenAI. Everything lives in one folder — config, system message, memory, and bot code. Fill in the API keys, start the bot.
+
+```bash
+python ChatBotGeneric/bot.py   # Start the Telegram bot
+```
+
+```python
+from ChatBotGeneric.agent import run
+answer = run("What is your returns policy?")
+```
+
+See [`ChatBotGeneric/README.md`](ChatBotGeneric/README.md) for full setup and documentation.
 
 ### tg/ — Telegram
 
