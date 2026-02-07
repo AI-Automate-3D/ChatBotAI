@@ -1,5 +1,11 @@
 """AI Agent package — RAG chatbot with memory, context retrieval, and chat completion.
 
+Primary entry point:
+
+    from agent.agent import run
+
+    answer = run("How do I return an item?")
+
 Standalone modules:
 
     from agent.memory import load_memory, save_memory, clear_memory

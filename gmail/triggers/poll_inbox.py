@@ -1,32 +1,27 @@
-"""Poll Gmail inbox for new unread emails and queue them for processing.
+"""Poll Gmail inbox for new unread emails and return them directly.
 
-Checks for unread messages in the inbox, writes new ones to the trigger
-queue, and optionally marks them as read so they aren't re-processed.
+Checks for unread messages in the inbox, parses them, and returns the
+trigger entries as a list — no file I/O.
 
 Usage
 -----
-    # Poll once
-    python gmail/triggers/poll_inbox.py
+    from gmail.triggers.poll_inbox import poll_inbox
 
-    # Poll only unread messages matching a query
-    python gmail/triggers/poll_inbox.py --query "from:alice"
+    # Get parsed email entries directly
+    service = get_gmail_service()
+    entries = poll_inbox(service, query="from:alice", max_results=5)
 
-    # Don't mark messages as read after queuing
-    python gmail/triggers/poll_inbox.py --no-mark-read
+    for entry in entries:
+        print(entry["from"], entry["subject"])
 
-    # Limit to N messages per poll
-    python gmail/triggers/poll_inbox.py --max 5
-
-Data flow
----------
-    Gmail Inbox (unread)
-        -> gmail/triggers/trigger_queue.json
-        -> messages marked as read (optional)
+    # CLI usage
+    python gmail/triggers/poll_inbox.py --query "from:alice" --max 5
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import uuid
@@ -39,13 +34,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from gmail.utils.auth import get_gmail_service
 from gmail.utils.parser import parse_message
-from gmail.utils.queue_manager import append_queue
 from gmail.api.modify_labels import mark_read
-
-# ── paths ─────────────────────────────────────────────────────────────────────
-
-TRIGGERS_DIR = Path(__file__).resolve().parent           # gmail/triggers/
-TRIGGER_QUEUE = TRIGGERS_DIR / "trigger_queue.json"
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +47,8 @@ def poll_inbox(
     max_results: int = 20,
     mark_as_read: bool = True,
     user_id: str = "me",
-) -> int:
-    """Poll for unread inbox messages and append them to the trigger queue.
+) -> list[dict]:
+    """Poll for unread inbox messages and return them as trigger entries.
 
     Parameters
     ----------
@@ -70,14 +59,14 @@ def poll_inbox(
     max_results : int
         Maximum number of messages to fetch per poll.
     mark_as_read : bool
-        If *True*, mark each queued message as read.
+        If *True*, mark each message as read after fetching.
     user_id : str
         Gmail user ID (default ``"me"``).
 
     Returns
     -------
-    int
-        Number of messages queued.
+    list[dict]
+        Parsed trigger entries, one per email.
     """
     # Build query: always unread + inbox, plus any user filter
     full_query = "is:unread in:inbox"
@@ -95,10 +84,10 @@ def poll_inbox(
 
     if not messages_meta:
         logger.info("No new unread messages")
-        return 0
+        return []
 
     logger.info("Found %d unread message(s)", len(messages_meta))
-    queued = 0
+    entries = []
 
     for meta in messages_meta:
         msg_id = meta["id"]
@@ -130,15 +119,14 @@ def poll_inbox(
             },
         }
 
-        append_queue(TRIGGER_QUEUE, entry)
-        queued += 1
+        entries.append(entry)
 
         # Mark as read so we don't re-process
         if mark_as_read:
             mark_read(service, msg_id, user_id=user_id)
 
-    logger.info("Queued %d message(s) to %s", queued, TRIGGER_QUEUE)
-    return queued
+    logger.info("Fetched %d message(s)", len(entries))
+    return entries
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -168,18 +156,21 @@ def main() -> None:
         "--no-mark-read",
         action="store_true",
         default=False,
-        help="Don't mark messages as read after queuing",
+        help="Don't mark messages as read after fetching",
     )
     args = parser.parse_args()
 
     service = get_gmail_service()
-    queued = poll_inbox(
+    entries = poll_inbox(
         service,
         query=args.query,
         max_results=args.max_results,
         mark_as_read=not args.no_mark_read,
     )
-    print(f"Queued {queued} new message(s)")
+
+    print(f"Fetched {len(entries)} new message(s)")
+    if entries:
+        print(json.dumps(entries, indent=2, default=str))
 
 
 if __name__ == "__main__":

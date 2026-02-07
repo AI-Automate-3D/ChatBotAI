@@ -1,34 +1,29 @@
-"""Build reply payloads — reads trigger_queue.json and writes reply_queue.json.
+"""Build reply payloads from trigger entries.
 
-Reads every entry from the trigger queue, builds a reply payload for
-each message, and writes the results to the reply queue.  A separate
-action process then picks up the reply queue and sends the messages
-via the Telegram API.
+Takes a list of trigger entries (incoming messages) and builds a reply
+payload for each one.  Returns the replies directly — no file I/O.
 
-Currently echoes the original text back.  Replace the ``generate_reply``
-function with your own logic (e.g. call an AI agent) to customise
-responses.
+The ``generate_reply`` function is a pluggable hook.  Replace it with
+your own logic (e.g. call an AI agent) to customise responses.
 
 Usage
 -----
-    # Process all pending triggers
-    python tg/handlers/build_replies.py
+    from tg.handlers.build_replies import build_replies, run
 
-    # Process only messages from a specific chat
-    python tg/handlers/build_replies.py --chat-id 123456789
+    # Direct function call with a list of trigger entries
+    replies = build_replies(entries)
 
-    # Don't clear the trigger queue after processing
-    python tg/handlers/build_replies.py --no-clear
+    # Or use run() for a single message shortcut
+    reply_text = run("Hello, bot!")
 
-Data flow
----------
-    tg/triggers/trigger_queue.json  (input)
-        -> tg/handlers/reply_queue.json  (output)
+    # CLI usage
+    python tg/handlers/build_replies.py --message "Hello!"
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -37,15 +32,6 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
-
-from tg.utils.queue_manager import load_queue, save_queue, clear_queue
-
-# ── paths ─────────────────────────────────────────────────────────────────────
-
-HANDLERS_DIR = Path(__file__).resolve().parent              # tg/handlers/
-TG_ROOT = HANDLERS_DIR.parent                                # tg/
-TRIGGER_QUEUE = TG_ROOT / "triggers" / "trigger_queue.json"
-REPLY_QUEUE = HANDLERS_DIR / "reply_queue.json"
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +58,24 @@ def generate_reply(text: str) -> str:
     return text
 
 
+def run(text: str) -> str:
+    """Generate a reply for a single message string.
+
+    Convenience wrapper that calls ``generate_reply`` directly.
+
+    Parameters
+    ----------
+    text : str
+        The message text.
+
+    Returns
+    -------
+    str
+        The reply text.
+    """
+    return generate_reply(text)
+
+
 def build_replies(
     entries: list[dict],
     filter_chat_id: int | None = None,
@@ -81,14 +85,15 @@ def build_replies(
     Parameters
     ----------
     entries : list[dict]
-        Trigger queue entries (from trigger_queue.json).
+        Trigger entries — each should have ``chat``, ``user``, and
+        ``message`` keys.
     filter_chat_id : int | None
         If set, only process entries from this chat ID.
 
     Returns
     -------
     list[dict]
-        Reply queue entries ready for the actions stage.
+        Reply entries ready for sending.
     """
     replies = []
 
@@ -130,42 +135,44 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        description="Read trigger_queue.json and write reply_queue.json.",
+        description="Build reply payloads from trigger entries.",
+    )
+    parser.add_argument(
+        "--trigger", "-t",
+        type=str,
+        default=None,
+        help="JSON string of trigger entries (list of dicts)",
+    )
+    parser.add_argument(
+        "--message", "-m",
+        type=str,
+        default=None,
+        help="Single message text to generate a reply for",
     )
     parser.add_argument(
         "--chat-id", "-c",
         type=int,
         default=None,
-        help="Only process messages from this chat ID (default: all chats)",
-    )
-    parser.add_argument(
-        "--no-clear",
-        action="store_true",
-        default=False,
-        help="Don't clear trigger_queue.json after processing",
+        help="Only process messages from this chat ID",
     )
     args = parser.parse_args()
 
-    # Load trigger queue
-    entries = load_queue(TRIGGER_QUEUE)
-    if not entries:
-        print("No pending messages in trigger_queue.json")
+    if args.message:
+        reply = run(args.message)
+        print(f"Reply: {reply}")
         return
 
-    print(f"Found {len(entries)} message(s) in trigger_queue.json")
+    if args.trigger:
+        entries = json.loads(args.trigger)
+        replies = build_replies(entries, filter_chat_id=args.chat_id)
+        print(json.dumps(replies, indent=2, default=str))
+        return
 
-    # Build replies
-    replies = build_replies(entries, filter_chat_id=args.chat_id)
-    print(f"Built {len(replies)} reply(s)")
-
-    # Write reply queue
-    save_queue(REPLY_QUEUE, replies)
-    print(f"Output written to {REPLY_QUEUE}")
-
-    # Clear trigger queue
-    if not args.no_clear:
-        clear_queue(TRIGGER_QUEUE)
-        logger.info("Cleared trigger_queue.json")
+    print(
+        "Usage:\n"
+        '  python tg/handlers/build_replies.py --message "Hello!"\n'
+        '  python tg/handlers/build_replies.py --trigger \'[{"chat":{"id":1},...}]\''
+    )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""AI Agent — reads input.txt, queries the knowledge base, writes output.txt.
+"""AI Agent — RAG chatbot that takes a question and returns an answer.
 
 Orchestrates the full RAG (Retrieval-Augmented Generation) pipeline:
 prompt loading, context retrieval, chat completion, and memory management.
@@ -11,14 +11,14 @@ Each step uses a standalone module that can be imported independently:
 
 Usage
 -----
-    # Write a question
-    echo "How do I return an item?" > agent/input.txt
+    from agent.agent import run
 
-    # Run the agent
-    python agent/agent.py
+    # Direct function call — returns the answer as a string
+    answer = run("How do I return an item?")
+    print(answer)
 
-    # Read the answer
-    cat agent/output.txt
+    # CLI usage (question passed as argument)
+    python agent/agent.py "How do I return an item?"
 
     # Clear memory
     python agent/agent.py --clear
@@ -46,23 +46,128 @@ logger = logging.getLogger(__name__)
 
 # Paths
 CONFIG_PATH = PROJECT_ROOT / "_config files" / "config.json"
-INPUT_PATH = AGENT_DIR / "input.txt"
-OUTPUT_PATH = AGENT_DIR / "output.txt"
 MEMORY_PATH = AGENT_DIR / "memory.json"
 
 
-# ── main ────────────────────────────────────────────────────────────────────
+# ── config ───────────────────────────────────────────────────────────────────
 
-def _load_config() -> dict:
-    """Load the full config.json from the project root."""
-    if not CONFIG_PATH.exists():
-        sys.exit(
-            f"ERROR: Config file not found: {CONFIG_PATH}\n"
+def _load_config(config_path: str | Path | None = None) -> dict:
+    """Load the full config.json from the project root.
+
+    Parameters
+    ----------
+    config_path : str | Path | None
+        Path to config.json.  Defaults to ``<project_root>/_config files/config.json``.
+    """
+    path = Path(config_path) if config_path else CONFIG_PATH
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Config file not found: {path}\n"
             "Copy config.example.json to config.json and fill in your API keys."
         )
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
+# ── run ──────────────────────────────────────────────────────────────────────
+
+def run(
+    question: str,
+    *,
+    config_path: str | Path | None = None,
+    memory_path: str | Path | None = None,
+    system_prompt_override: str | None = None,
+) -> str:
+    """Ask the agent a question and get a response.
+
+    This is the primary entry point.  Pass a question string directly
+    and receive the answer as a return value — no file I/O required.
+
+    Parameters
+    ----------
+    question : str
+        The user's question.
+    config_path : str | Path | None
+        Path to config.json.  Defaults to the project-level config.
+    memory_path : str | Path | None
+        Path to the memory JSON file.  Defaults to ``agent/memory.json``.
+    system_prompt_override : str | None
+        If provided, use this as the system prompt instead of loading
+        from the config / prompt file.
+
+    Returns
+    -------
+    str
+        The agent's response.
+    """
+    if not question or not question.strip():
+        raise ValueError("Question cannot be empty.")
+
+    question = question.strip()
+    mem_path = Path(memory_path) if memory_path else MEMORY_PATH
+
+    # ── load config ─────────────────────────────────────────────────────
+    config = _load_config(config_path)
+
+    openai_cfg = config.get("openai", {})
+    openai_api_key = openai_cfg.get("api_key", "")
+    embedding_model = openai_cfg.get("embedding_model", "text-embedding-3-small")
+
+    if not openai_api_key:
+        raise ValueError("Missing 'openai.api_key' in config.json")
+
+    agent_cfg = config.get("agent", {})
+    chat_model = agent_cfg.get("chat_model", "gpt-4.1")
+    top_k = agent_cfg.get("top_k", 5)
+    max_history = agent_cfg.get("max_history", 10)
+
+    # ── load system prompt ──────────────────────────────────────────────
+    if system_prompt_override:
+        system_prompt = system_prompt_override
+    else:
+        prompt_file = agent_cfg.get("system_prompt_file", "")
+        prompt_path = PROJECT_ROOT / prompt_file if prompt_file else None
+        system_prompt = load_prompt(
+            prompt_path,
+            default=agent_cfg.get("system_prompt"),
+        )
+
+    # ── load memory ─────────────────────────────────────────────────────
+    history = load_memory(mem_path)
+    if history:
+        pairs = len(history) // 2
+        logger.info("Memory: %d previous exchange(s) loaded", pairs)
+
+    # ── retrieve context from Pinecone ──────────────────────────────────
+    logger.info("Retrieving context from knowledge base ...")
+    cfg_path = Path(config_path) if config_path else CONFIG_PATH
+    context = retrieve_context(
+        question=question,
+        openai_api_key=openai_api_key,
+        embedding_model=embedding_model,
+        config_path=cfg_path,
+        top_k=top_k,
+    )
+
+    # ── generate response ───────────────────────────────────────────────
+    logger.info("Generating response with %s ...", chat_model)
+    answer = chat(
+        api_key=openai_api_key,
+        model=chat_model,
+        system_prompt=system_prompt,
+        context=context,
+        history=history,
+        question=question,
+    )
+
+    # ── save to memory ──────────────────────────────────────────────────
+    history = append_exchange(history, question, answer)
+    save_memory(mem_path, history, max_pairs=max_history)
+
+    return answer
+
+
+# ── CLI entry point ──────────────────────────────────────────────────────────
 
 def main() -> None:
     logging.basicConfig(
@@ -76,78 +181,20 @@ def main() -> None:
         print("Memory cleared.")
         return
 
-    # ── load config ────────────────────────────────────────────────────────
-    config = _load_config()
+    # Get question from CLI arguments (everything that isn't a flag)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    question = " ".join(args).strip()
 
-    openai_cfg = config.get("openai", {})
-    openai_api_key = openai_cfg.get("api_key", "")
-    embedding_model = openai_cfg.get("embedding_model", "text-embedding-3-small")
-
-    if not openai_api_key:
-        sys.exit("ERROR: Missing 'openai.api_key' in config.json")
-
-    agent_cfg = config.get("agent", {})
-    chat_model = agent_cfg.get("chat_model", "gpt-4.1")
-    top_k = agent_cfg.get("top_k", 5)
-    max_history = agent_cfg.get("max_history", 10)
-
-    # ── load system prompt ─────────────────────────────────────────────────
-    prompt_file = agent_cfg.get("system_prompt_file", "")
-    if prompt_file:
-        prompt_path = PROJECT_ROOT / prompt_file
-    else:
-        prompt_path = None
-
-    system_prompt = load_prompt(
-        prompt_path,
-        default=agent_cfg.get("system_prompt"),
-    )
-
-    # ── read input ─────────────────────────────────────────────────────────
-    if not INPUT_PATH.exists():
-        sys.exit(f"ERROR: No input file found at {INPUT_PATH}")
-
-    question = INPUT_PATH.read_text(encoding="utf-8").strip()
     if not question:
-        sys.exit("ERROR: input.txt is empty.")
+        sys.exit(
+            "Usage: python agent/agent.py \"Your question here\"\n"
+            "       python agent/agent.py --clear"
+        )
 
     print(f"Question: {question}")
 
-    # ── load memory ────────────────────────────────────────────────────────
-    history = load_memory(MEMORY_PATH)
-    if history:
-        pairs = len(history) // 2
-        print(f"Memory: {pairs} previous exchange(s) loaded")
+    answer = run(question)
 
-    # ── retrieve context from Pinecone ─────────────────────────────────────
-    print("Retrieving context from knowledge base ...")
-    context = retrieve_context(
-        question=question,
-        openai_api_key=openai_api_key,
-        embedding_model=embedding_model,
-        config_path=CONFIG_PATH,
-        top_k=top_k,
-    )
-
-    # ── generate response ──────────────────────────────────────────────────
-    print(f"Generating response with {chat_model} ...")
-    answer = chat(
-        api_key=openai_api_key,
-        model=chat_model,
-        system_prompt=system_prompt,
-        context=context,
-        history=history,
-        question=question,
-    )
-
-    # ── save to memory ─────────────────────────────────────────────────────
-    history = append_exchange(history, question, answer)
-    save_memory(MEMORY_PATH, history, max_pairs=max_history)
-
-    # ── write output ───────────────────────────────────────────────────────
-    OUTPUT_PATH.write_text(answer, encoding="utf-8")
-
-    print(f"\nAnswer written to {OUTPUT_PATH}")
     print("-" * 50)
     print(answer)
 

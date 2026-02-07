@@ -1,26 +1,23 @@
-"""Send replies — reads reply_queue.json and sends each reply via Gmail.
+"""Send replies via Gmail — takes reply entries directly.
 
-Reads the reply queue produced by ``handlers/build_replies.py`` and
-sends each reply to the original sender using the Gmail API.
+Sends each reply entry to the original sender using the Gmail API.
+Accepts reply entries as function arguments — no file I/O.
 
 Usage
 -----
-    # Send all pending replies
-    python gmail/actions/send_replies.py
+    from gmail.actions.send_replies import send_all
 
-    # Don't clear the reply queue after sending
-    python gmail/actions/send_replies.py --no-clear
+    # Send a list of reply entries
+    sent_count = send_all(service, entries)
 
-Data flow
----------
-    gmail/handlers/reply_queue.json  (input)
-        -> Gmail API  (sends replies)
-        -> reply_queue.json cleared
+    # CLI usage
+    python gmail/actions/send_replies.py --replies '[{"to":"a@b.com","reply":{"text":"Hi"}}]'
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -30,15 +27,8 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from gmail.utils.auth import get_gmail_service
-from gmail.utils.queue_manager import load_queue, clear_queue
 from gmail.api.reply_email import reply_email
 from gmail.api.send_email import send_email
-
-# ── paths ─────────────────────────────────────────────────────────────────────
-
-ACTIONS_DIR = Path(__file__).resolve().parent               # gmail/actions/
-GMAIL_ROOT = ACTIONS_DIR.parent                              # gmail/
-REPLY_QUEUE = GMAIL_ROOT / "handlers" / "reply_queue.json"
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +49,8 @@ def send_all(
     service
         Authenticated Gmail API service object.
     entries : list[dict]
-        Reply queue entries (from reply_queue.json).
+        Reply entries — each should have ``to``, ``reply.text``, and
+        optionally ``gmail_message_id`` / ``gmail_thread_id``.
 
     Returns
     -------
@@ -113,35 +104,29 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        description="Read reply_queue.json and send replies via Gmail.",
+        description="Send reply entries via Gmail API.",
     )
     parser.add_argument(
-        "--no-clear",
-        action="store_true",
-        default=False,
-        help="Don't clear reply_queue.json after sending",
+        "--replies", "-r",
+        type=str,
+        default=None,
+        help="JSON string of reply entries (list of dicts)",
     )
     args = parser.parse_args()
 
-    # Authenticate
-    service = get_gmail_service()
-
-    # Load reply queue
-    entries = load_queue(REPLY_QUEUE)
-    if not entries:
-        print("No pending replies in reply_queue.json")
+    if not args.replies:
+        print(
+            "Usage:\n"
+            '  python gmail/actions/send_replies.py --replies \'[{"to":"a@b.com","reply":{"text":"Hi"}}]\''
+        )
         return
 
-    print(f"Found {len(entries)} reply(s) in reply_queue.json")
+    service = get_gmail_service()
+    entries = json.loads(args.replies)
+    print(f"Sending {len(entries)} reply(s) ...")
 
-    # Send
     sent = send_all(service, entries)
     print(f"Sent {sent} message(s)")
-
-    # Clear
-    if not args.no_clear:
-        clear_queue(REPLY_QUEUE)
-        logger.info("Cleared reply_queue.json")
 
 
 if __name__ == "__main__":

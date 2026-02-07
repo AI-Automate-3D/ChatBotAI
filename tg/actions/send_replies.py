@@ -1,31 +1,24 @@
-"""Send replies — reads reply_queue.json and sends each reply via Telegram.
+"""Send replies via Telegram — takes reply entries directly.
 
-Reads the reply queue produced by ``handlers/build_replies.py`` and
-sends each ``reply.text`` back to its corresponding chat using the
-Telegram Bot API.
+Sends each reply entry to its corresponding chat using the Telegram
+Bot API.  Accepts reply entries as function arguments — no file I/O.
 
 Usage
 -----
-    # Send all pending replies
-    python tg/actions/send_replies.py
+    from tg.actions.send_replies import send_all
 
-    # Send only to a specific chat
-    python tg/actions/send_replies.py --chat-id 123456789
+    # Send a list of reply entries
+    sent_count = await send_all(bot_token, entries)
 
-    # Don't clear the reply queue after sending
-    python tg/actions/send_replies.py --no-clear
-
-Data flow
----------
-    tg/handlers/reply_queue.json  (input)
-        -> Telegram Bot API  (sends messages)
-        -> reply_queue.json cleared
+    # CLI usage
+    python tg/actions/send_replies.py --replies '[{"chat":{"id":1},"reply":{"text":"Hi"}}]'
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from pathlib import Path
@@ -37,13 +30,6 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from tg.utils.config import load_config, get_bot_token
-from tg.utils.queue_manager import load_queue, clear_queue
-
-# ── paths ─────────────────────────────────────────────────────────────────────
-
-ACTIONS_DIR = Path(__file__).resolve().parent               # tg/actions/
-TG_ROOT = ACTIONS_DIR.parent                                 # tg/
-REPLY_QUEUE = TG_ROOT / "handlers" / "reply_queue.json"
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +48,7 @@ async def send_all(
     bot_token : str
         Telegram bot API token.
     entries : list[dict]
-        Reply queue entries (from reply_queue.json).
+        Reply entries — each should have ``chat.id`` and ``reply.text``.
     filter_chat_id : int | None
         If set, only send to this chat ID.
 
@@ -101,7 +87,13 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        description="Read reply_queue.json and send replies via Telegram.",
+        description="Send reply entries via Telegram Bot API.",
+    )
+    parser.add_argument(
+        "--replies", "-r",
+        type=str,
+        default=None,
+        help="JSON string of reply entries (list of dicts)",
     )
     parser.add_argument(
         "--chat-id", "-c",
@@ -109,34 +101,23 @@ def main() -> None:
         default=None,
         help="Only send to this chat ID (default: all chats)",
     )
-    parser.add_argument(
-        "--no-clear",
-        action="store_true",
-        default=False,
-        help="Don't clear reply_queue.json after sending",
-    )
     args = parser.parse_args()
 
-    # Load config
     config = load_config()
     bot_token = get_bot_token(config)
 
-    # Load reply queue
-    entries = load_queue(REPLY_QUEUE)
-    if not entries:
-        print("No pending replies in reply_queue.json")
+    if not args.replies:
+        print(
+            "Usage:\n"
+            '  python tg/actions/send_replies.py --replies \'[{"chat":{"id":1},"reply":{"text":"Hi"}}]\''
+        )
         return
 
-    print(f"Found {len(entries)} reply(s) in reply_queue.json")
+    entries = json.loads(args.replies)
+    print(f"Sending {len(entries)} reply(s) ...")
 
-    # Send
     sent = asyncio.run(send_all(bot_token, entries, filter_chat_id=args.chat_id))
     print(f"Sent {sent} message(s)")
-
-    # Clear
-    if not args.no_clear:
-        clear_queue(REPLY_QUEUE)
-        logger.info("Cleared reply_queue.json")
 
 
 if __name__ == "__main__":
