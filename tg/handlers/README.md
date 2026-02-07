@@ -33,13 +33,13 @@ def generate_reply(text: str) -> str:
 
 ```bash
 # Process all pending triggers
-python telegram/handlers/build_replies.py
+python tg/handlers/build_replies.py
 
 # Filter by chat ID
-python telegram/handlers/build_replies.py --chat-id 123456789
+python tg/handlers/build_replies.py --chat-id 123456789
 
 # Keep trigger queue after processing
-python telegram/handlers/build_replies.py --no-clear
+python tg/handlers/build_replies.py --no-clear
 ```
 
 ### reply_queue.json Entry Format
@@ -56,4 +56,4 @@ python telegram/handlers/build_replies.py --no-clear
 
 ### Dependencies
 
-- `telegram.utils.queue_manager` (shared JSON queue manager)
+- `tg.utils.queue_manager` (shared JSON queue manager)

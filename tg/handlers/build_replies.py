@@ -12,18 +12,18 @@ responses.
 Usage
 -----
     # Process all pending triggers
-    python telegram/handlers/build_replies.py
+    python tg/handlers/build_replies.py
 
     # Process only messages from a specific chat
-    python telegram/handlers/build_replies.py --chat-id 123456789
+    python tg/handlers/build_replies.py --chat-id 123456789
 
     # Don't clear the trigger queue after processing
-    python telegram/handlers/build_replies.py --no-clear
+    python tg/handlers/build_replies.py --no-clear
 
 Data flow
 ---------
-    telegram/triggers/trigger_queue.json  (input)
-        -> telegram/handlers/reply_queue.json  (output)
+    tg/triggers/trigger_queue.json  (input)
+        -> tg/handlers/reply_queue.json  (output)
 """
 
 from __future__ import annotations
@@ -34,21 +34,19 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from telegram.utils.queue_manager import load_queue, save_queue, clear_queue
+from tg.utils.queue_manager import load_queue, save_queue, clear_queue
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 
-HANDLERS_DIR = Path(__file__).resolve().parent              # telegram/handlers/
-TELEGRAM_ROOT = HANDLERS_DIR.parent                          # telegram/
-TRIGGER_QUEUE = TELEGRAM_ROOT / "triggers" / "trigger_queue.json"
+HANDLERS_DIR = Path(__file__).resolve().parent              # tg/handlers/
+TG_ROOT = HANDLERS_DIR.parent                                # tg/
+TRIGGER_QUEUE = TG_ROOT / "triggers" / "trigger_queue.json"
 REPLY_QUEUE = HANDLERS_DIR / "reply_queue.json"
 
-logging.basicConfig(
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -109,6 +107,7 @@ def build_replies(
             continue
 
         reply_entry = {
+            "id": entry.get("id"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "chat": chat,
             "user": user,
@@ -125,6 +124,11 @@ def build_replies(
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    logging.basicConfig(
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        level=logging.INFO,
+    )
+
     parser = argparse.ArgumentParser(
         description="Read trigger_queue.json and write reply_queue.json.",
     )

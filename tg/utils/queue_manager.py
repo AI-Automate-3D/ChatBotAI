@@ -8,7 +8,7 @@ Designed to be reusable across projects — no Telegram-specific logic.
 
 Usage
 -----
-    from telegram.utils.queue_manager import load_queue, append_queue, clear_queue
+    from tg.utils.queue_manager import load_queue, append_queue, clear_queue
 
     # Read all entries
     entries = load_queue("/path/to/queue.json")

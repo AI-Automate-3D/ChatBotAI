@@ -2,22 +2,22 @@
 
 Reads the reply queue produced by ``handlers/build_replies.py`` and
 sends each ``reply.text`` back to its corresponding chat using the
-standalone ``api/send_message`` function.
+Telegram Bot API.
 
 Usage
 -----
     # Send all pending replies
-    python telegram/actions/send_replies.py
+    python tg/actions/send_replies.py
 
     # Send only to a specific chat
-    python telegram/actions/send_replies.py --chat-id 123456789
+    python tg/actions/send_replies.py --chat-id 123456789
 
     # Don't clear the reply queue after sending
-    python telegram/actions/send_replies.py --no-clear
+    python tg/actions/send_replies.py --no-clear
 
 Data flow
 ---------
-    telegram/handlers/reply_queue.json  (input)
+    tg/handlers/reply_queue.json  (input)
         -> Telegram Bot API  (sends messages)
         -> reply_queue.json cleared
 """
@@ -32,21 +32,19 @@ from pathlib import Path
 
 from telegram import Bot
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from telegram.utils.config import load_config, get_bot_token
-from telegram.utils.queue_manager import load_queue, clear_queue
+from tg.utils.config import load_config, get_bot_token
+from tg.utils.queue_manager import load_queue, clear_queue
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 
-ACTIONS_DIR = Path(__file__).resolve().parent               # telegram/actions/
-TELEGRAM_ROOT = ACTIONS_DIR.parent                           # telegram/
-REPLY_QUEUE = TELEGRAM_ROOT / "handlers" / "reply_queue.json"
+ACTIONS_DIR = Path(__file__).resolve().parent               # tg/actions/
+TG_ROOT = ACTIONS_DIR.parent                                 # tg/
+REPLY_QUEUE = TG_ROOT / "handlers" / "reply_queue.json"
 
-logging.basicConfig(
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -97,6 +95,11 @@ async def send_all(
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    logging.basicConfig(
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        level=logging.INFO,
+    )
+
     parser = argparse.ArgumentParser(
         description="Read reply_queue.json and send replies via Telegram.",
     )

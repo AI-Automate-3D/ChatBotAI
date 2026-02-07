@@ -6,7 +6,7 @@ pipeline.
 
 Usage
 -----
-    from telegram.api.send_message import send_message
+    from tg.api.send_message import send_message
 
     # Synchronous wrapper (handles the event loop for you)
     result = send_message("BOT_TOKEN", chat_id=123456, text="Hello!")
@@ -16,7 +16,7 @@ Usage
 
 CLI
 ---
-    python -m telegram.api.send_message --token BOT_TOKEN --chat-id 123 --text "Hi"
+    python -m tg.api.send_message --token BOT_TOKEN --chat-id 123 --text "Hi"
 """
 
 from __future__ import annotations

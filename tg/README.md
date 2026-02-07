@@ -4,7 +4,7 @@ Receives messages from Telegram, processes them through a pipeline, and sends re
 
 ## Architecture
 
-The telegram folder uses a **3-stage pipeline** with JSON files as the data-passing layer between stages:
+The tg folder uses a **3-stage pipeline** with JSON files as the data-passing layer between stages:
 
 ```
 triggers/              ->  handlers/              ->  actions/
@@ -57,13 +57,13 @@ User receives reply on Telegram
 
 ```bash
 # 1. Start the bot listener (runs continuously)
-python telegram/triggers/bot.py
+python tg/triggers/bot.py
 
 # 2. Process queued messages into replies
-python telegram/handlers/build_replies.py
+python tg/handlers/build_replies.py
 
 # 3. Send the replies
-python telegram/actions/send_replies.py
+python tg/actions/send_replies.py
 ```
 
 ## Configuration
@@ -83,6 +83,6 @@ Requires `telegram.bot_token` in `_config files/config.json`:
 Every module can be imported standalone:
 
 ```python
-from telegram.api import send_message, send_typing, get_me
-from telegram.utils import load_config, get_bot_token, load_queue, append_queue
+from tg.api import send_message, send_typing, get_me
+from tg.utils import load_config, get_bot_token, load_queue, append_queue
 ```

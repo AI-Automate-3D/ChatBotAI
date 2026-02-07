@@ -37,7 +37,12 @@ from tools.pinecone.vector_store import VectorStore
 logger = logging.getLogger(__name__)
 
 
-def make_embed_fn(api_key: str, model: str = "text-embedding-3-small"):
+from typing import Callable
+
+EmbedFn = Callable[[str], list[float]]
+
+
+def make_embed_fn(api_key: str, model: str = "text-embedding-3-small") -> EmbedFn:
     """Create an OpenAI embedding function.
 
     Parameters
@@ -49,7 +54,7 @@ def make_embed_fn(api_key: str, model: str = "text-embedding-3-small"):
 
     Returns
     -------
-    callable
+    EmbedFn
         A function ``embed(text: str) -> list[float]``.
     """
     client = openai.OpenAI(api_key=api_key)

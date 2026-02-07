@@ -21,9 +21,9 @@ Every API function provides:
 ## Usage — as a Library
 
 ```python
-from telegram.api.send_message import send_message
-from telegram.api.send_typing import send_typing
-from telegram.api.get_me import get_me
+from tg.api.send_message import send_message
+from tg.api.send_typing import send_typing
+from tg.api.get_me import get_me
 
 # Send a message
 result = send_message("BOT_TOKEN", chat_id=123456, text="Hello!")
@@ -39,9 +39,9 @@ print(info["username"])
 ## Usage — from CLI
 
 ```bash
-python -m telegram.api.send_message --token BOT_TOKEN --chat-id 123 --text "Hello"
-python -m telegram.api.send_typing --token BOT_TOKEN --chat-id 123
-python -m telegram.api.get_me --token BOT_TOKEN
+python -m tg.api.send_message --token BOT_TOKEN --chat-id 123 --text "Hello"
+python -m tg.api.send_typing --token BOT_TOKEN --chat-id 123
+python -m tg.api.get_me --token BOT_TOKEN
 ```
 
 ## send_message.py Parameters

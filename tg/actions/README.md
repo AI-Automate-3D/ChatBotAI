@@ -20,13 +20,13 @@ The final stage of the pipeline. For each reply queue entry it:
 
 ```bash
 # Send all pending replies
-python telegram/actions/send_replies.py
+python tg/actions/send_replies.py
 
 # Send to a specific chat only
-python telegram/actions/send_replies.py --chat-id 123456789
+python tg/actions/send_replies.py --chat-id 123456789
 
 # Keep reply queue after sending
-python telegram/actions/send_replies.py --no-clear
+python tg/actions/send_replies.py --no-clear
 ```
 
 ### Key Function
@@ -40,5 +40,5 @@ Returns the number of messages successfully sent.
 ### Dependencies
 
 - `python-telegram-bot`
-- `telegram.utils.config` (shared config loader)
-- `telegram.utils.queue_manager` (shared JSON queue manager)
+- `tg.utils.config` (shared config loader)
+- `tg.utils.queue_manager` (shared JSON queue manager)

@@ -42,10 +42,6 @@ from agent.context import retrieve_context
 from agent.chat import chat
 from agent.prompt import load_prompt
 
-logging.basicConfig(
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
 # Paths
@@ -55,9 +51,9 @@ OUTPUT_PATH = AGENT_DIR / "output.txt"
 MEMORY_PATH = AGENT_DIR / "memory.json"
 
 
-# ── config ──────────────────────────────────────────────────────────────────
+# ── main ────────────────────────────────────────────────────────────────────
 
-def load_config() -> dict:
+def _load_config() -> dict:
     """Load the full config.json from the project root."""
     if not CONFIG_PATH.exists():
         sys.exit(
@@ -68,9 +64,12 @@ def load_config() -> dict:
         return json.load(f)
 
 
-# ── main ────────────────────────────────────────────────────────────────────
-
 def main() -> None:
+    logging.basicConfig(
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        level=logging.INFO,
+    )
+
     # Handle --clear flag
     if "--clear" in sys.argv:
         clear_memory(MEMORY_PATH)
@@ -78,7 +77,7 @@ def main() -> None:
         return
 
     # ── load config ────────────────────────────────────────────────────────
-    config = load_config()
+    config = _load_config()
 
     openai_cfg = config.get("openai", {})
     openai_api_key = openai_cfg.get("api_key", "")

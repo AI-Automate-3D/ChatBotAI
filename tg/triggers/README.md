@@ -23,7 +23,7 @@ Runs continuously and listens for Telegram messages. For each incoming message i
 ### Usage
 
 ```bash
-python telegram/triggers/bot.py
+python tg/triggers/bot.py
 ```
 
 ### trigger_queue.json Entry Format
@@ -58,6 +58,6 @@ python telegram/triggers/bot.py
 ### Dependencies
 
 - `python-telegram-bot`
-- `telegram.utils.config` (shared config loader)
-- `telegram.utils.chat_logger` (shared JSONL logger)
-- `telegram.utils.queue_manager` (shared JSON queue manager)
+- `tg.utils.config` (shared config loader)
+- `tg.utils.chat_logger` (shared JSONL logger)
+- `tg.utils.queue_manager` (shared JSON queue manager)

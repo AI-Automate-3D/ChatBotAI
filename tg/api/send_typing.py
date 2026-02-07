@@ -6,13 +6,13 @@ project.
 
 Usage
 -----
-    from telegram.api.send_typing import send_typing
+    from tg.api.send_typing import send_typing
 
     send_typing("BOT_TOKEN", chat_id=123456)
 
 CLI
 ---
-    python -m telegram.api.send_typing --token BOT_TOKEN --chat-id 123
+    python -m tg.api.send_typing --token BOT_TOKEN --chat-id 123
 """
 
 from __future__ import annotations

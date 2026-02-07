@@ -5,14 +5,14 @@ that a bot token is valid and retrieving the bot's username, id, etc.
 
 Usage
 -----
-    from telegram.api.get_me import get_me
+    from tg.api.get_me import get_me
 
     info = get_me("BOT_TOKEN")
     print(info["username"])
 
 CLI
 ---
-    python -m telegram.api.get_me --token BOT_TOKEN
+    python -m tg.api.get_me --token BOT_TOKEN
 """
 
 from __future__ import annotations

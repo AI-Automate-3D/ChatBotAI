@@ -7,21 +7,22 @@ file so downstream handlers can pick it up.
 
 Usage
 -----
-    python telegram/triggers/bot.py
+    python tg/triggers/bot.py
 
 The bot token is read from config.json under ``telegram.bot_token``.
 
 Data flow
 ---------
     Telegram user message
-        -> log to  telegram/log/chat_log.jsonl   (audit trail)
-        -> queue in telegram/triggers/trigger_queue.json  (for handlers)
+        -> log to  tg/log/chat_log.jsonl           (audit trail)
+        -> queue in tg/triggers/trigger_queue.json  (for handlers)
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,25 +37,22 @@ from telegram.ext import (
 )
 
 # ── project imports ───────────────────────────────────────────────────────────
-# These are standalone utilities; each can be used independently.
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from telegram.utils.config import load_config, get_bot_token
-from telegram.utils.chat_logger import log_update
-from telegram.utils.queue_manager import append_queue
+from tg.utils.config import load_config, get_bot_token
+from tg.utils.chat_logger import log_update
+from tg.utils.queue_manager import append_queue
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 
-TRIGGER_DIR = Path(__file__).resolve().parent             # telegram/triggers/
-TELEGRAM_ROOT = TRIGGER_DIR.parent                         # telegram/
+TRIGGER_DIR = Path(__file__).resolve().parent             # tg/triggers/
+TG_ROOT = TRIGGER_DIR.parent                               # tg/
 TRIGGER_QUEUE = TRIGGER_DIR / "trigger_queue.json"
-LAST_CHAT_PATH = TELEGRAM_ROOT / "last_chat_id.txt"
+LAST_CHAT_PATH = TG_ROOT / "last_chat_id.txt"
 
-logging.basicConfig(
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -81,6 +79,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user = update.effective_user
     chat = update.effective_chat
 
+    if not msg or not msg.text:
+        return
+
     logger.info("Message from %s (chat %s): %s", user.first_name, chat.id, msg.text)
 
     # 1. Audit log (JSONL — never cleared)
@@ -91,6 +92,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # 3. Build trigger entry and queue it
     entry = {
+        "id": str(uuid.uuid4()),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "chat": {
             "id": chat.id,
@@ -128,6 +130,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    logging.basicConfig(
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        level=logging.INFO,
+    )
+
     config = load_config()
     bot_token = get_bot_token(config)
 

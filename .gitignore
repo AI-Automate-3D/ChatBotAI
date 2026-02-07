@@ -8,10 +8,10 @@ credentials/
 agent/memory.json
 agent/input.txt
 agent/output.txt
-telegram/triggers/trigger_queue.json
-telegram/handlers/reply_queue.json
-telegram/log/
-telegram/last_chat_id.txt
+tg/triggers/trigger_queue.json
+tg/handlers/reply_queue.json
+tg/log/
+tg/last_chat_id.txt
 
 # Python
 __pycache__/

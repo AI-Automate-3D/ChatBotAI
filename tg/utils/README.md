@@ -1,6 +1,6 @@
 # utils/
 
-Shared standalone utilities used across the telegram pipeline. Each module can be imported independently into any project.
+Shared standalone utilities used across the tg pipeline. Each module can be imported independently into any project.
 
 ## Files
 
@@ -15,7 +15,7 @@ Shared standalone utilities used across the telegram pipeline. Each module can b
 Loads configuration from `_config files/config.json`. Supports custom paths.
 
 ```python
-from telegram.utils.config import load_config, get_bot_token
+from tg.utils.config import load_config, get_bot_token
 
 config = load_config()                          # default path
 config = load_config("/custom/config.json")     # custom path
@@ -29,7 +29,7 @@ token = get_bot_token(config)                   # from pre-loaded config
 Append-only JSONL logging for Telegram updates. Each line is a complete JSON object with timestamp, update_id, message, user, chat, and raw update data.
 
 ```python
-from telegram.utils.chat_logger import log_update
+from tg.utils.chat_logger import log_update
 
 log_update(update)                                      # default log path
 log_update(update, log_file="/tmp/my_bot.jsonl")        # custom path
@@ -48,7 +48,7 @@ Log entries include:
 Generic JSON file queue manager. Not Telegram-specific — can be used in any project.
 
 ```python
-from telegram.utils.queue_manager import load_queue, append_queue, save_queue, clear_queue
+from tg.utils.queue_manager import load_queue, append_queue, save_queue, clear_queue
 
 # Read all entries
 entries = load_queue("queue.json")

@@ -6,7 +6,7 @@ config.json layout.
 
 Usage
 -----
-    from telegram.utils.config import load_config
+    from tg.utils.config import load_config
 
     config = load_config()
     bot_token = config["telegram"]["bot_token"]

@@ -57,6 +57,9 @@ from tools.pinecone.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_CONFIG = _PROJECT_ROOT / "_config files" / "config.json"
+
 
 # ── embedding helpers ───────────────────────────────────────────────────────
 
@@ -263,10 +266,10 @@ def main() -> None:
     elif args.env_file:
         # Explicit --env-file path
         cfg = PineconeConfig.from_env(env_file=args.env_file)
-    elif Path("_config files/config.json").exists():
-        # Auto-detect config.json in _config files/
-        cfg = PineconeConfig.from_json("_config files/config.json")
-        with open("_config files/config.json", "r", encoding="utf-8") as f:
+    elif _PROJECT_CONFIG.exists():
+        # Auto-detect config.json in project root
+        cfg = PineconeConfig.from_json(str(_PROJECT_CONFIG))
+        with open(_PROJECT_CONFIG, "r", encoding="utf-8") as f:
             _json_config = json.load(f)
     else:
         # Fallback to environment variables

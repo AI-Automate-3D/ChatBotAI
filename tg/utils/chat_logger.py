@@ -7,7 +7,7 @@ logging for Telegram updates.
 
 Usage
 -----
-    from telegram.utils.chat_logger import log_update
+    from tg.utils.chat_logger import log_update
 
     log_update(update)                          # uses default log path
     log_update(update, log_file="/tmp/my.jsonl") # custom path
@@ -38,7 +38,7 @@ def log_update(update: Update, log_file: str | Path | None = None) -> dict:
         The incoming Telegram update object.
     log_file : str | Path | None
         Path to the JSONL log file.  Defaults to
-        ``telegram/log/chat_log.jsonl``.
+        ``tg/log/chat_log.jsonl``.
 
     Returns
     -------
