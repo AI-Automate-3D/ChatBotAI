@@ -89,16 +89,23 @@ python agent/agent.py   # Run the agent
 
 ### tools/pinecone/ — Vector Database Toolkit
 
-Index management, document parsing, and vector operations for Pinecone.
+Full-featured Pinecone toolkit — vector operations, embeddings, document parsing (.docx/.txt/.csv), namespace management, and backup/restore.
 
 ```python
-from tools.pinecone.vector_store import VectorStore
-from tools.pinecone.index_manager import create_index, list_indexes
-from tools.pinecone.parser import parse_docx, parse_kb_text
+from tools.pinecone import PineconeConfig, VectorStore
+from tools.pinecone.embeddings import make_embed_fn, embed_text, embed_batch
+from tools.pinecone.parser import parse_file, parse_docx, parse_txt, parse_csv
+from tools.pinecone.fetch import fetch_vectors, fetch_one, vector_exists
+from tools.pinecone.namespace_manager import list_namespaces, copy_namespace
+from tools.pinecone.backup import export_namespace, import_vectors
 ```
 
 ```bash
-python -m tools.pinecone.cli   # Interactive CLI
+python -m tools.pinecone.cli index create --dimension 1536
+python -m tools.pinecone.cli vectors query --text "search terms" --top-k 5
+python -m tools.pinecone.cli vectors upsert --file data.csv
+python -m tools.pinecone.cli namespace list
+python -m tools.pinecone.cli backup export --file backup.json
 ```
 
 ### tools/openai/ — Embedding & Ingestion
