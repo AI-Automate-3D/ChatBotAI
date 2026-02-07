@@ -2,27 +2,32 @@
 
 Reusable Pinecone vector database toolkit. Self-contained — can be copied into any project.
 
-## Files
+## Modules
 
-| File | Key Exports | Description |
-|------|-------------|-------------|
-| `config.py` | `PineconeConfig` | Configuration dataclass with `from_json()` and `from_env()` factory methods |
-| `client.py` | `get_client()`, `get_index()` | Thin wrappers for authenticated Pinecone client/index creation |
-| `vector_store.py` | `VectorStore` | Core vector operations — upsert, query, delete, stats |
+| Module | Key Exports | Description |
+|--------|-------------|-------------|
+| `config.py` | `PineconeConfig` | Configuration dataclass with `from_json()` and `from_env()` |
+| `client.py` | `get_client()`, `get_index()` | Authenticated Pinecone client/index creation |
+| `vector_store.py` | `VectorStore` | Core operations — upsert, query (with filters), batch query, delete, fetch, stats |
 | `index_manager.py` | `create_index()`, `delete_index()`, `list_indexes()`, `describe_index()` | Index lifecycle management |
-| `parser.py` | `parse_docx()`, `parse_kb_text()` | Parse `.docx` knowledge base documents into chunks |
-| `cli.py` | — | Unified CLI for all Pinecone operations |
+| `embeddings.py` | `make_embed_fn()`, `embed_text()`, `embed_batch()` | Standalone embedding wrappers (OpenAI) |
+| `parser.py` | `parse_file()`, `parse_docx()`, `parse_txt()`, `parse_csv()` | Parse .docx, .txt, .csv into upsert-ready chunks |
+| `fetch.py` | `fetch_vectors()`, `fetch_one()`, `vector_exists()` | Fetch vectors by ID |
+| `namespace_manager.py` | `list_namespaces()`, `delete_namespace()`, `copy_namespace()` | Namespace operations |
+| `backup.py` | `export_namespace()`, `import_vectors()`, `export_metadata_only()` | Backup & restore to JSON |
+| `cli.py` | — | Unified CLI for all operations |
 
 ## VectorStore
 
 The main interface for working with vectors. Embedding-agnostic — pass any `embed_fn` callable.
 
 ```python
-from tools.pinecone.config import PineconeConfig
-from tools.pinecone.vector_store import VectorStore
+from tools.pinecone import PineconeConfig, VectorStore
+from tools.pinecone.embeddings import make_embed_fn
 
-config = PineconeConfig.from_json("config.json")
-store = VectorStore(config, embed_fn=my_embed_fn)
+config = PineconeConfig.from_env()
+embed = make_embed_fn(model="text-embedding-3-small")
+store = VectorStore(config, embed_fn=embed)
 
 # Upsert text (auto-embeds)
 store.upsert_texts([
@@ -30,55 +35,93 @@ store.upsert_texts([
     {"id": "doc-2", "text": "Shipping info..."},
 ])
 
-# Query with text (auto-embeds)
+# Query with text
 results = store.query_text("How do returns work?", top_k=5)
 
+# Query with metadata filtering
+results = store.query_text(
+    "shipping", top_k=5,
+    filter={"type": {"$eq": "support"}},
+)
+
+# Batch query multiple questions
+all_results = store.query_batch(
+    ["shipping?", "returns?", "pricing?"], top_k=3,
+)
+
 # Get formatted context for LLM
-context = store.get_context("How do returns work?", top_k=5)
-# -> "[1] Returns policy...\n\n[2] Related text..."
+context = store.get_context("How do returns work?", top_k=5, min_score=0.7)
+
+# Fetch by ID
+vectors = store.fetch(["doc-1", "doc-2"])
 
 # Stats
 stats = store.stats()
 ```
 
-## PineconeConfig
+## Embeddings
+
+Standalone embedding functions — usable anywhere, not tied to VectorStore.
 
 ```python
-from tools.pinecone.config import PineconeConfig
+from tools.pinecone.embeddings import embed_text, embed_batch, make_embed_fn
 
-# From config.json
-config = PineconeConfig.from_json("config.json")
+# Single text
+vector = embed_text("hello world", model="text-embedding-3-small")
 
-# From environment variables
-config = PineconeConfig.from_env()
+# Batch (fewer API calls)
+vectors = embed_batch(["hello", "world"], model="small")
 
-# Direct
-config = PineconeConfig(
-    api_key="pk-...",
-    index_name="my-index",
-    namespace="chatbot",
-)
-```
-
-## Index Management
-
-```python
-from tools.pinecone.index_manager import create_index, delete_index, describe_index
-
-create_index(config, dimension=1536, metric="cosine")
-info = describe_index(config)
-delete_index(config, skip_confirm=True)
+# Reusable function
+embed = make_embed_fn(model="small")
+vec = embed("hello world")
 ```
 
 ## Document Parsing
 
-Parses `.docx` files using `--- KB_CHUNK_END ---` as the separator. Each chunk should have `KB_ID`, `TYPE`, `TITLE`, and `TEXT` fields.
+Multiple format support — all return upsert-ready chunks.
 
 ```python
-from tools.pinecone.parser import parse_docx
+from tools.pinecone.parser import parse_file, parse_docx, parse_txt, parse_csv
 
+# Auto-detect format by extension
+chunks = parse_file("knowledge_base.docx")
+
+# .docx with KB_CHUNK_END delimiters
 chunks = parse_docx("knowledge_base.docx")
-# -> [{"id": "kb_001", "text": "...", "type": "support", "title": "..."}, ...]
+
+# .txt with delimiters or paragraph splitting
+chunks = parse_txt("data.txt")
+
+# .csv with id, text, and optional metadata columns
+chunks = parse_csv("data.csv")
+```
+
+## Namespace Management
+
+```python
+from tools.pinecone.namespace_manager import list_namespaces, copy_namespace
+
+# List all namespaces
+ns = list_namespaces(config)  # {"chatbot": 150, "backup": 100}
+
+# Copy between namespaces
+copy_namespace(config, source_ns="chatbot", target_ns="backup")
+```
+
+## Backup & Restore
+
+```python
+from tools.pinecone.backup import export_namespace, import_vectors
+
+# Export all vectors to JSON
+export_namespace(config, output_file="backup.json")
+
+# Export metadata only (no large embedding arrays)
+export_metadata_only(config, output_file="metadata.json")
+
+# Import from backup
+import_vectors(config, input_file="backup.json", replace=True)
 ```
 
 ## CLI
@@ -93,8 +136,24 @@ python -m tools.pinecone.cli index describe
 # Vector operations
 python -m tools.pinecone.cli vectors stats
 python -m tools.pinecone.cli vectors upsert --file data.docx --replace
+python -m tools.pinecone.cli vectors upsert --file data.csv
+python -m tools.pinecone.cli vectors upsert --file data.txt
+python -m tools.pinecone.cli vectors fetch --ids doc-1 doc-2
+python -m tools.pinecone.cli vectors query --text "search terms" --top-k 5
+python -m tools.pinecone.cli vectors query --text "search" --filter '{"type": {"$eq": "faq"}}'
 python -m tools.pinecone.cli vectors delete --ids vec-1 vec-2
 python -m tools.pinecone.cli vectors delete-all --yes
+
+# Namespace operations
+python -m tools.pinecone.cli namespace list
+python -m tools.pinecone.cli namespace stats --ns chatbot
+python -m tools.pinecone.cli namespace delete --ns old-data --yes
+python -m tools.pinecone.cli namespace copy --from chatbot --to backup
+
+# Backup & restore
+python -m tools.pinecone.cli backup export --file backup.json
+python -m tools.pinecone.cli backup export --file metadata.json --metadata-only
+python -m tools.pinecone.cli backup import --file backup.json --replace
 ```
 
 ## Configuration
@@ -126,4 +185,5 @@ python -m tools.pinecone.cli vectors delete-all --yes
 ## Dependencies
 
 - `pinecone`
+- `openai` (for embeddings)
 - `python-docx` (for `.docx` parsing)

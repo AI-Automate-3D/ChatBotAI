@@ -142,26 +142,59 @@ class VectorStore:
         top_k: int = 5,
         namespace: str | None = None,
         include_metadata: bool = True,
+        filter: dict | None = None,
+        include_values: bool = False,
     ) -> list[dict]:
         """Query the index with a pre-computed vector.
 
-        Returns a list of dicts with keys: ``id``, ``score``, ``metadata``.
+        Parameters
+        ----------
+        vector : list[float]
+            Query vector.
+        top_k : int
+            Number of results to return.
+        namespace : str | None
+            Override the default namespace.
+        include_metadata : bool
+            Include metadata in results.
+        filter : dict | None
+            Pinecone metadata filter. Uses Pinecone's filter syntax::
+
+                {"type": {"$eq": "support"}}
+                {"$and": [{"type": {"$eq": "faq"}}, {"lang": {"$eq": "en"}}]}
+
+        include_values : bool
+            Include embedding vectors in results.
+
+        Returns
+        -------
+        list[dict]
+            List of ``{"id", "score", "metadata"}`` dicts (plus ``"values"``
+            if *include_values* is True).
         """
         ns = namespace or self._namespace
-        results = self._index.query(
-            vector=vector,
-            top_k=top_k,
-            include_metadata=include_metadata,
-            namespace=ns,
-        )
-        return [
-            {
+        kwargs = {
+            "vector": vector,
+            "top_k": top_k,
+            "include_metadata": include_metadata,
+            "include_values": include_values,
+            "namespace": ns,
+        }
+        if filter:
+            kwargs["filter"] = filter
+
+        results = self._index.query(**kwargs)
+        output = []
+        for m in results.get("matches", []):
+            entry = {
                 "id": m["id"],
                 "score": m["score"],
                 "metadata": m.get("metadata", {}),
             }
-            for m in results.get("matches", [])
-        ]
+            if include_values:
+                entry["values"] = m.get("values", [])
+            output.append(entry)
+        return output
 
     def query_text(
         self,
@@ -169,14 +202,66 @@ class VectorStore:
         embed_fn: EmbedFn | None = None,
         top_k: int = 5,
         namespace: str | None = None,
+        filter: dict | None = None,
     ) -> list[dict]:
         """Embed *text* then query the index.
 
         Convenience wrapper around :meth:`query`.
+
+        Parameters
+        ----------
+        text : str
+            Text to embed and search.
+        embed_fn : EmbedFn | None
+            Override embedding function.
+        top_k : int
+            Number of results.
+        namespace : str | None
+            Namespace override.
+        filter : dict | None
+            Metadata filter.
         """
         fn = self._resolve_embed_fn(embed_fn)
         vector = fn(text)
-        return self.query(vector, top_k=top_k, namespace=namespace)
+        return self.query(vector, top_k=top_k, namespace=namespace, filter=filter)
+
+    def query_batch(
+        self,
+        texts: list[str],
+        embed_fn: EmbedFn | None = None,
+        top_k: int = 5,
+        namespace: str | None = None,
+        filter: dict | None = None,
+    ) -> list[list[dict]]:
+        """Query the index with multiple texts in sequence.
+
+        Parameters
+        ----------
+        texts : list[str]
+            List of query texts.
+        embed_fn : EmbedFn | None
+            Override embedding function.
+        top_k : int
+            Results per query.
+        namespace : str | None
+            Namespace override.
+        filter : dict | None
+            Metadata filter applied to every query.
+
+        Returns
+        -------
+        list[list[dict]]
+            One result list per input text.
+        """
+        fn = self._resolve_embed_fn(embed_fn)
+        all_results = []
+        for text in texts:
+            vector = fn(text)
+            matches = self.query(
+                vector, top_k=top_k, namespace=namespace, filter=filter,
+            )
+            all_results.append(matches)
+        return all_results
 
     def get_context(
         self,
@@ -184,17 +269,36 @@ class VectorStore:
         embed_fn: EmbedFn | None = None,
         top_k: int = 5,
         namespace: str | None = None,
+        filter: dict | None = None,
+        min_score: float = 0.0,
     ) -> str:
         """Return retrieved context formatted as a numbered string.
 
         Useful for injecting into an LLM prompt.
+
+        Parameters
+        ----------
+        text : str
+            Query text.
+        embed_fn : EmbedFn | None
+            Override embedding function.
+        top_k : int
+            Number of chunks to retrieve.
+        namespace : str | None
+            Namespace override.
+        filter : dict | None
+            Metadata filter.
+        min_score : float
+            Minimum similarity score to include (0.0 to 1.0).
         """
         docs = self.query_text(text, embed_fn=embed_fn, top_k=top_k,
-                               namespace=namespace)
+                               namespace=namespace, filter=filter)
         if not docs:
             return ""
         chunks = []
         for i, doc in enumerate(docs, 1):
+            if doc["score"] < min_score:
+                continue
             doc_text = doc["metadata"].get("text", "")
             chunks.append(f"[{i}] {doc_text}")
         return "\n\n".join(chunks)
@@ -243,6 +347,40 @@ class VectorStore:
         ns = namespace or self._namespace
         self._index.update(id=vector_id, set_metadata=metadata, namespace=ns)
         logger.info("Updated metadata for '%s' in namespace '%s'.", vector_id, ns)
+
+    # ── fetch ──────────────────────────────────────────────────────────────
+
+    def fetch(
+        self,
+        ids: list[str],
+        namespace: str | None = None,
+    ) -> list[dict]:
+        """Fetch vectors by their IDs (not a similarity search).
+
+        Parameters
+        ----------
+        ids : list[str]
+            Vector IDs to fetch.
+        namespace : str | None
+            Namespace override.
+
+        Returns
+        -------
+        list[dict]
+            ``{"id", "values", "metadata"}`` for each found ID.
+        """
+        ns = namespace or self._namespace
+        response = self._index.fetch(ids=ids, namespace=ns)
+        vectors = response.get("vectors", {})
+        results = []
+        for vec_id, vec_data in vectors.items():
+            results.append({
+                "id": vec_id,
+                "values": vec_data.get("values", []),
+                "metadata": vec_data.get("metadata", {}),
+            })
+        logger.info("Fetched %d of %d vector(s).", len(results), len(ids))
+        return results
 
     # ── stats ──────────────────────────────────────────────────────────────
 
