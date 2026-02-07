@@ -1,8 +1,13 @@
 """AI Agent — reads input.txt, queries the knowledge base, writes output.txt.
 
-Uses the Pinecone vector store for RAG (Retrieval-Augmented Generation)
-and OpenAI gpt-4.1 for chat completion.  Conversation history is stored
-in memory.json so the agent remembers previous exchanges.
+Orchestrates the full RAG (Retrieval-Augmented Generation) pipeline:
+prompt loading, context retrieval, chat completion, and memory management.
+
+Each step uses a standalone module that can be imported independently:
+    - ``agent.prompt``  — system prompt loading
+    - ``agent.context`` — vector store context retrieval
+    - ``agent.chat``    — OpenAI chat completion
+    - ``agent.memory``  — conversation history
 
 Usage
 -----
@@ -32,10 +37,10 @@ PROJECT_ROOT = AGENT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import openai
-
-from tools.pinecone.config import PineconeConfig
-from tools.pinecone.vector_store import VectorStore
+from agent.memory import load_memory, save_memory, clear_memory, append_exchange
+from agent.context import retrieve_context
+from agent.chat import chat
+from agent.prompt import load_prompt
 
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -63,103 +68,13 @@ def load_config() -> dict:
         return json.load(f)
 
 
-# ── memory ──────────────────────────────────────────────────────────────────
-
-def load_memory() -> list[dict]:
-    """Load conversation history from memory.json.
-
-    Returns a list of message dicts: [{"role": "user", "content": "..."},
-    {"role": "assistant", "content": "..."}, ...]
-    """
-    if not MEMORY_PATH.exists():
-        return []
-    try:
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, IOError):
-        return []
-
-
-def save_memory(history: list[dict], max_history: int) -> None:
-    """Save conversation history to memory.json, trimmed to max_history pairs.
-
-    Args:
-        history:     Full list of user/assistant message dicts.
-        max_history: Max number of *message pairs* to keep (each pair =
-                     1 user + 1 assistant message = 2 entries).
-    """
-    # Keep only the last N pairs (N * 2 individual messages)
-    max_messages = max_history * 2
-    trimmed = history[-max_messages:] if max_messages > 0 else []
-
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(trimmed, f, indent=2, ensure_ascii=False)
-
-
-def clear_memory() -> None:
-    """Delete conversation history."""
-    if MEMORY_PATH.exists():
-        MEMORY_PATH.unlink()
-    print("Memory cleared.")
-
-
-# ── embedding ───────────────────────────────────────────────────────────────
-
-def make_embed_fn(api_key: str, model: str):
-    """Create an OpenAI embedding function."""
-    client = openai.OpenAI(api_key=api_key)
-
-    def embed(text: str) -> list[float]:
-        response = client.embeddings.create(input=text, model=model)
-        return response.data[0].embedding
-
-    return embed
-
-
-# ── chat ────────────────────────────────────────────────────────────────────
-
-def chat(
-    api_key: str,
-    model: str,
-    system_prompt: str,
-    context: str,
-    history: list[dict],
-    question: str,
-) -> str:
-    """Send a RAG-augmented question to OpenAI with conversation history."""
-    client = openai.OpenAI(api_key=api_key)
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-    ]
-
-    if context:
-        messages.append({
-            "role": "system",
-            "content": f"Use the following knowledge base context to answer the user's question:\n\n{context}",
-        })
-
-    # Add conversation history (previous exchanges)
-    messages.extend(history)
-
-    # Add current question
-    messages.append({"role": "user", "content": question})
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-    )
-
-    return response.choices[0].message.content
-
-
 # ── main ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     # Handle --clear flag
     if "--clear" in sys.argv:
-        clear_memory()
+        clear_memory(MEMORY_PATH)
+        print("Memory cleared.")
         return
 
     # ── load config ────────────────────────────────────────────────────────
@@ -177,27 +92,17 @@ def main() -> None:
     top_k = agent_cfg.get("top_k", 5)
     max_history = agent_cfg.get("max_history", 10)
 
-    # Load system prompt — from file (.txt or .docx) or inline string
+    # ── load system prompt ─────────────────────────────────────────────────
     prompt_file = agent_cfg.get("system_prompt_file", "")
     if prompt_file:
         prompt_path = PROJECT_ROOT / prompt_file
-        if not prompt_path.exists():
-            sys.exit(f"ERROR: System prompt file not found: {prompt_path}")
-
-        if prompt_path.suffix.lower() == ".docx":
-            from docx import Document as DocxDocument
-            doc = DocxDocument(str(prompt_path))
-            system_prompt = "\n".join(p.text for p in doc.paragraphs).strip()
-        else:
-            system_prompt = prompt_path.read_text(encoding="utf-8").strip()
-
-        logger.info("Loaded system prompt from %s", prompt_file)
     else:
-        system_prompt = agent_cfg.get(
-            "system_prompt",
-            "You are a helpful assistant. Answer questions using only the "
-            "provided context. If you don't know the answer, say so honestly.",
-        )
+        prompt_path = None
+
+    system_prompt = load_prompt(
+        prompt_path,
+        default=agent_cfg.get("system_prompt"),
+    )
 
     # ── read input ─────────────────────────────────────────────────────────
     if not INPUT_PATH.exists():
@@ -210,23 +115,20 @@ def main() -> None:
     print(f"Question: {question}")
 
     # ── load memory ────────────────────────────────────────────────────────
-    history = load_memory()
+    history = load_memory(MEMORY_PATH)
     if history:
         pairs = len(history) // 2
         print(f"Memory: {pairs} previous exchange(s) loaded")
 
     # ── retrieve context from Pinecone ─────────────────────────────────────
-    pinecone_cfg = PineconeConfig.from_json(str(CONFIG_PATH))
-    embed_fn = make_embed_fn(openai_api_key, embedding_model)
-    store = VectorStore(pinecone_cfg, embed_fn=embed_fn)
-
     print("Retrieving context from knowledge base ...")
-    context = store.get_context(question, top_k=top_k)
-
-    if context:
-        logger.info("Retrieved %d context chunk(s).", context.count("["))
-    else:
-        logger.warning("No relevant context found in the knowledge base.")
+    context = retrieve_context(
+        question=question,
+        openai_api_key=openai_api_key,
+        embedding_model=embedding_model,
+        config_path=CONFIG_PATH,
+        top_k=top_k,
+    )
 
     # ── generate response ──────────────────────────────────────────────────
     print(f"Generating response with {chat_model} ...")
@@ -240,15 +142,14 @@ def main() -> None:
     )
 
     # ── save to memory ─────────────────────────────────────────────────────
-    history.append({"role": "user", "content": question})
-    history.append({"role": "assistant", "content": answer})
-    save_memory(history, max_history)
+    history = append_exchange(history, question, answer)
+    save_memory(MEMORY_PATH, history, max_pairs=max_history)
 
     # ── write output ───────────────────────────────────────────────────────
     OUTPUT_PATH.write_text(answer, encoding="utf-8")
 
     print(f"\nAnswer written to {OUTPUT_PATH}")
-    print("─" * 50)
+    print("-" * 50)
     print(answer)
 
 
