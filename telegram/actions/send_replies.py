@@ -1,7 +1,8 @@
-"""Send replies — reads telegram_output.json and sends each reply via Telegram.
+"""Send replies — reads reply_queue.json and sends each reply via Telegram.
 
-Reads the output JSON produced by send_message.py and sends each
-reply.text back to its corresponding chat via the Telegram Bot API.
+Reads the reply queue produced by ``handlers/build_replies.py`` and
+sends each ``reply.text`` back to its corresponding chat using the
+standalone ``api/send_message`` function.
 
 Usage
 -----
@@ -11,28 +12,36 @@ Usage
     # Send only to a specific chat
     python telegram/actions/send_replies.py --chat-id 123456789
 
-    # Don't clear the output file after sending
+    # Don't clear the reply queue after sending
     python telegram/actions/send_replies.py --no-clear
+
+Data flow
+---------
+    telegram/handlers/reply_queue.json  (input)
+        -> Telegram Bot API  (sends messages)
+        -> reply_queue.json cleared
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import sys
 from pathlib import Path
 
 from telegram import Bot
 
-# ── paths ────────────────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-ACTIONS_DIR = Path(__file__).resolve().parent        # telegram/actions/
-TELEGRAM_ROOT = ACTIONS_DIR.parent                    # telegram/
-PROJECT_ROOT = TELEGRAM_ROOT.parent                   # project root
-CONFIG_PATH = PROJECT_ROOT / "_config files" / "config.json"
-OUTPUT_PATH = TELEGRAM_ROOT / "output" / "telegram_output.json"
+from telegram.utils.config import load_config, get_bot_token
+from telegram.utils.queue_manager import load_queue, clear_queue
+
+# ── paths ─────────────────────────────────────────────────────────────────────
+
+ACTIONS_DIR = Path(__file__).resolve().parent               # telegram/actions/
+TELEGRAM_ROOT = ACTIONS_DIR.parent                           # telegram/
+REPLY_QUEUE = TELEGRAM_ROOT / "handlers" / "reply_queue.json"
 
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -41,36 +50,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── send ──────────────────────────────────────────────────────────────────────
 
-def load_config() -> dict:
-    """Load the full config.json."""
-    if not CONFIG_PATH.exists():
-        sys.exit(
-            f"ERROR: Config file not found: {CONFIG_PATH}\n"
-            "Copy config.example.json to config.json and fill in your API keys."
-        )
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+async def send_all(
+    bot_token: str,
+    entries: list[dict],
+    filter_chat_id: int | None = None,
+) -> int:
+    """Send each reply entry to its chat via Telegram.
 
+    Parameters
+    ----------
+    bot_token : str
+        Telegram bot API token.
+    entries : list[dict]
+        Reply queue entries (from reply_queue.json).
+    filter_chat_id : int | None
+        If set, only send to this chat ID.
 
-def load_output() -> list[dict]:
-    """Load pending replies from telegram_output.json."""
-    if not OUTPUT_PATH.exists():
-        return []
-    data = json.loads(OUTPUT_PATH.read_text(encoding="utf-8"))
-    return data if isinstance(data, list) else []
-
-
-def clear_output() -> None:
-    """Reset telegram_output.json to an empty array."""
-    OUTPUT_PATH.write_text("[]", encoding="utf-8")
-
-
-# ── send ─────────────────────────────────────────────────────────────────────
-
-async def send_all(bot_token: str, entries: list[dict], filter_chat_id: int | None = None) -> int:
-    """Send each reply to its chat. Returns count of messages sent."""
+    Returns
+    -------
+    int
+        Number of messages successfully sent.
+    """
     bot = Bot(token=bot_token)
     sent = 0
 
@@ -92,11 +94,11 @@ async def send_all(bot_token: str, entries: list[dict], filter_chat_id: int | No
     return sent
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Read telegram_output.json and send replies via Telegram.",
+        description="Read reply_queue.json and send replies via Telegram.",
     )
     parser.add_argument(
         "--chat-id", "-c",
@@ -108,25 +110,21 @@ def main() -> None:
         "--no-clear",
         action="store_true",
         default=False,
-        help="Don't clear telegram_output.json after sending",
+        help="Don't clear reply_queue.json after sending",
     )
     args = parser.parse_args()
 
     # Load config
     config = load_config()
-    telegram_cfg = config.get("telegram", {})
-    bot_token = telegram_cfg.get("bot_token", "")
+    bot_token = get_bot_token(config)
 
-    if not bot_token:
-        sys.exit("ERROR: Missing 'telegram.bot_token' in config.json")
-
-    # Load output
-    entries = load_output()
+    # Load reply queue
+    entries = load_queue(REPLY_QUEUE)
     if not entries:
-        print("No pending replies in telegram_output.json")
+        print("No pending replies in reply_queue.json")
         return
 
-    print(f"Found {len(entries)} reply(s) in telegram_output.json")
+    print(f"Found {len(entries)} reply(s) in reply_queue.json")
 
     # Send
     sent = asyncio.run(send_all(bot_token, entries, filter_chat_id=args.chat_id))
@@ -134,8 +132,8 @@ def main() -> None:
 
     # Clear
     if not args.no_clear:
-        clear_output()
-        logger.info("Cleared telegram_output.json")
+        clear_queue(REPLY_QUEUE)
+        logger.info("Cleared reply_queue.json")
 
 
 if __name__ == "__main__":
