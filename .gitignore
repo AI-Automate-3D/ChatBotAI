@@ -12,6 +12,9 @@ tg/triggers/trigger_queue.json
 tg/handlers/reply_queue.json
 tg/log/
 tg/last_chat_id.txt
+gmail/triggers/trigger_queue.json
+gmail/handlers/reply_queue.json
+gmail/log/
 
 # Python
 __pycache__/

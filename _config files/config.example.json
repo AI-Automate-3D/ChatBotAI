@@ -22,5 +22,9 @@
   },
   "telegram": {
     "bot_token": ""
+  },
+  "gmail": {
+    "credentials_file": "credentials/gmail-credentials.json",
+    "token_file": "credentials/gmail-token.json"
   }
 }
